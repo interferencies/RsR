@@ -1,0 +1,45 @@
+RSR - Radio Stream Record
+Programa para la emisión y grabación de radio por internet
+Versión MeigHacks 2011 - CSOA Palavea - GZ
+Sábado 22 de Octubre de 2011 - Bajo una licencia GPL-2
+<luca@interferencies.net>
+
+0. Pre-REQUISITOS
+1. Ejecución
+2. Interfaz
+A. Licencia: GPL 2
+
+
+0. Pre-REQUISITOS
+	Este programa trabaja sobre plugins Gstreamer-0.10, Pulseaudio y el entorno GTK2.
+	Tener los paquetes: python, python-gst0.10, python-gtk2, gstreamer0.10-pulseaudio, pulseaudio
+
+1. Ejecución
+
+	Antes de todo debes abrir el fichero de configuracion y rellenarlo con los datos de tu punto de montaje. Nosotrxs utilizamos uno del proyecto Giss.TV.
+	En la seccion [record] escribe en "folder" la dirección del path donde quieres que se graben los programas.
+	Para arrancar el rsr escribe: ./rsr <nombre_fichero_configuracion>
+	Un ejemplo: ./rsr example.conf
+
+2. Interfaz
+	
+	Revisa los datos de la interfaz para realizar las conexiones.
+	Para emitir pulsa sobre el botón Emitir. En unos segundos deberías ver como se mueve la barra de nivel indicando la señal de audio retransmitiendo.
+	Para grabar, antes de pulsar el botón escribe el nombre del programa. En la carpeta donde hayas indicado en el fichero de configuración se grabaran los programas con nombre de la radio, programa y fecha.
+
+A. Licencia: GPL-2
+ 	This program is free software; you can redistribute it and/or modify
+ it under the terms of the GNU General Public License as published by
+ the Free Software Foundation; either version 2 of the License, or
+ (at your option) any later version.
+ .
+ This program is distributed in the hope that it will be useful,
+ but WITHOUT ANY WARRANTY; without even the implied warranty of
+ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ GNU General Public License for more details.
+ .
+ You should have received a copy of the GNU General Public License along
+ with this program; if not, write to the Free Software Foundation, Inc.,
+ 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+X-Comment: On Debian systems, the complete text of the GNU General Public
+ License can be found in /usr/share/common-licenses/GPL-2 file.
