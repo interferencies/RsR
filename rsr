@@ -1,0 +1,360 @@
+#!/usr/bin/python
+
+import sys,os,thread,time
+try :
+	import gtk
+	import gtk.glade
+	import gobject
+	import pygtk
+except :
+	print "REQUISITO: Falta instalar python-gtk"
+
+try :
+	import pygst
+	pygst.require("0.10")
+	import gst
+	# para controlar la conexion
+except :
+	print "REQUISITO: Falta instalar python-gst"
+
+import httplib
+import threading
+
+import ConfigParser
+import io
+
+# GLADEfiles
+MAIN_GLADE="InterfazEmision.glade"
+
+# Intentos de reconexion
+MAX_TRY = 10
+
+
+
+class StreamingStatus:
+	def __init__(self,url,path):
+		self.conn = httplib.HTTPConnection(url)
+		self.conn.request("GET",path)
+	
+	def getResponse(self):
+		try :
+			r1 = self.conn.getresponse()
+			if (r1.status == 200):
+				return True
+			else:
+				return False
+		except:
+			return None
+
+
+def loadConfig(path) : 
+	print "Cargando configuracion del fichero: %s"%path
+	config = ConfigParser.RawConfigParser()
+	config.read(path)
+
+	# CONFIGURACION STREAMING
+	IP = config.get("stream","server")
+	PORT = int(config.get("stream","port"))
+	MOUNT = config.get("stream","mount")
+	PASSWORD = config.get("stream","password")
+	USERNAME = config.get("stream","username")
+	STREAMNAME = config.get("stream","streamname")
+	DESCRIPTION = config.get("stream","description")
+	GENRE = config.get("stream","genre")
+	URL = config.get("stream","url")
+		
+	print "Definidas variables"
+
+class GTK_Main:
+
+	# Visualiza los valores de la configuracion en el entorno grafico
+	def view_configuration(self):
+		self.name.set_text(STREAMNAME)
+		self.description.set_text(DESCRIPTION)
+		self.user.set_text(USERNAME)
+		self.passw.set_text(PASSWORD)
+		self.server.set_text(IP)
+		self.port.set_text(str(PORT))
+		self.mount.set_text(MOUNT)
+		self.genre.set_text(GENRE)
+		self.url.set_text(URL)
+
+	def update_configuration(self):
+		print "Actualizando las variables de emision"
+		STREAMNAME = self.name.get_text()
+		DESCRIPTION = self.description.get_text()
+		USERNAME = self.user.get_text()
+		PASSWORD = self.passw.get_text()
+		IP = self.server.get_text()
+		PORT = int(self.port.get_text())
+		MOUNT = self.mount.get_text()
+		GENRE = self.genre.get_text()
+		URL = self.url.get_text()
+		
+		self.textbuffer.insert_at_cursor(STREAMNAME+" - "+IP+" - "+MOUNT+"\n")
+
+	def print_configuration(self):
+		print STREAMNAME+DESCRIPTION+USERNAME+PASSORD+IP+str(PORT)+MOUNT+GENRE+URL
+
+	def conectado(self):
+		return StreamingStatus(IP+":"+str(PORT),MOUNT).getResponse()
+
+	def update_stream_pipe(self):
+		# Config Stream
+		self.shout2send = self.streaming.get_by_name("streamsink")
+		self.shout2send.set_property("ip",IP)
+		self.shout2send.set_property("port",PORT)
+		self.shout2send.set_property("password",PASSWORD)
+		self.shout2send.set_property("username",USERNAME)
+		self.shout2send.set_property("public",PUBLIC)
+		self.shout2send.set_property("streamname",STREAMNAME)
+		self.shout2send.set_property("description",DESCRIPTION)
+		self.shout2send.set_property("genre",GENRE)
+		self.shout2send.set_property("protocol",PROTOCOL)
+		self.shout2send.set_property("mount",MOUNT)
+		self.shout2send.set_property("url",URL)
+		self.stream_try = 0 # Connections tries
+
+	#Events
+
+	def restart_streaming(self):
+
+		self.streaming.set_state(gst.STATE_NULL)
+		self.stream_try = 0
+		self.streaming.set_state(gst.STATE_PLAYING)
+		self.textbuffer.insert_at_cursor("Arrancando la emision\n")
+		while (not self.conectado()) :
+			self.textbuffer.insert_at_cursor("Volviendo a conectar [%s]"%self.stream_try)
+			time.sleep(5)
+			self.stream_try = self.stream_try+1
+		self.button1.set_label("Parar")
+		self.statusbar.push(0,"Emitiendo")
+
+
+	def start_streaming(self,w):
+
+		if self.streaming.get_state()[1] == gst.STATE_NULL :
+			self.update_stream_pipe()
+			self.streaming.set_state(gst.STATE_PAUSED)
+
+		if self.streaming.get_state()[1] == gst.STATE_PAUSED:
+			self.stream_try = 0
+			self.streaming.set_state(gst.STATE_PLAYING)
+			self.textbuffer.insert_at_cursor("Arrancando la emision\n")
+			while (not self.conectado()) :
+				self.textbuffer.insert_at_cursor("Sin conexion. Volviendo a conectar [%s]"%self.stream_try)
+				time.sleep(5)
+				self.stream_try = self.stream_try+1
+			self.button1.set_label("Parar")
+			self.statusbar.push(0,"Emitiendo")
+
+		elif self.streaming.get_state()[1] == gst.STATE_PLAYING:
+			self.streaming.set_state(gst.STATE_NULL)
+			self.button1.set_label("Arrancar")
+			self.textbuffer.insert_at_cursor("Stop Streaming\n")
+			self.level.set_fraction( 0 )
+			self.statusbar.push(0,"Sin emision")
+
+	def start_dump(self,w):
+
+		if self.dump.get_state()[1] == gst.STATE_NULL:
+			self.update_configuration()
+			self.dump = gst.parse_launch("pulsesrc !  audioconvert ! audioresample ! level name=level ! vorbisenc ! oggmux ! filesink location="+PATH_DUMP+STREAMNAME.replace(" ","_")+"_"+self.prog.get_text().replace(" ","_")+"_"+str(int(time.time()))+".ogg")
+			self.dump.set_state(gst.STATE_PAUSED)
+		if self.dump.get_state()[1] == gst.STATE_PAUSED:
+			# La vuelvo a poner para escribirla con la nueva configuracion
+			self.dump.set_state(gst.STATE_PLAYING)
+			self.button2.set_label("Parar Grabacion")
+			self.statusbar.push(0,"Grabando")
+		elif self.dump.get_state()[1] == gst.STATE_PLAYING:
+			self.dump.set_state(gst.STATE_NULL)
+			self.button2.set_label("Grabar")
+		else:
+			self.textbuffer.insert_at_cursor("Error al tratar la grabacion")
+
+        # Bus Message from Recording Pipeline
+        def on_message_recording(self,bus,message):
+                t = message.type
+                if t == gst.MESSAGE_ELEMENT:
+                        s =  message.structure
+                        print s.keys()
+                        if s["peak"][0]>-50:
+                                self.levelrec.set_fraction( (100+2*s["peak"][0])/100 )
+                        else:
+                                self.levelrec.set_fraction( 0 )
+
+
+	# Bus Message from Stream Pipeline
+	def on_message(self,bus,message):
+		t = message.type
+		e = message.src.get_name()
+		
+		if t == gst.MESSAGE_EOS:
+			self.streaming.set_state(gst.NULL)
+			self.textbuffer.insert_at_cursor("End Of Stream\n")
+		elif t == gst.MESSAGE_ERROR:
+			self.streaming.set_state(gst.STATE_NULL)
+			err,debug = message.parse_error()
+			print "Elemento: %s - Error: %s - Debug: %s \n" % (message.src.get_name(),err,debug)
+			if e == "streamsink":
+				self.textbuffer.insert_at_cursor("Sin emision\n")
+				self.textbuffer.insert_at_cursor("Problemas para conectarse con el servidor de emision. Revise la conexion y los datos.\n")
+			self.button1.set_label("Arrancar")
+			print "Stop Streaming"
+			self.level.set_fraction( 0 )
+			self.streaming.set_state(gst.STATE_PAUSED)
+			#vuelve a probar de arrancar el stream en 5 segundos
+			print "Arrancando en 5 segundos"
+			self.button1.set_label("Parar")
+			t = 0
+			while t < MAX_TRY:
+				print "Intento %s"%t
+				threading.Timer(5.0,self.restart_streaming).start()
+				t = t+1
+
+		elif t == gst.MESSAGE_ELEMENT:
+			s =  message.structure
+			if s["peak"][0]>-50:
+				self.level.set_fraction( (100+2*s["peak"][0])/100 )
+			else:
+				self.level.set_fraction( 0 )
+
+		elif t == gst.MESSAGE_STATE_CHANGED:
+			s =  message.structure
+			#print "Cambio de ESTADO: Anterior: %s, Actual %s, Pendiente %s"%(s["old-state"],s["new-state"],s["pending-state"])
+			if e == "streamsink":
+				#print "Cambios en el elemento de emision"
+				s = message.structure
+				#print s["old-state"],s["new-state"],s["pending-state"]
+				if s["new-state"] == gst.STATE_PAUSED:
+					self.textbuffer.insert_at_cursor("Volviendo a arrancar el stream. \n")
+					
+				return
+			if self.streaming.get_state()[1] == gst.STATE_PLAYING:
+				#self.statusbar.push(0,"Emitiendo")
+				#self.textbuffer.insert_at_cursor("Conectado - Emitiendo senhal..\n")
+				#print self.streaming.get_state()
+				return
+			else:
+				self.statusbar.pop(0)
+		elif t == gst.MESSAGE_STREAM_STATUS:
+			s = message.structure
+		else:
+			print t
+
+
+
+	def main_quit(self,w,s=None):
+		self.streaming.set_state(gst.STATE_NULL)
+		self.dump.set_state(gst.STATE_NULL)
+		self.level.set_fraction( 0 )
+		print "Exit"	
+		sys.exit(0)
+
+	def __init__(self):
+
+
+		#GTK - Glade
+		self.wTree = gtk.glade.XML(MAIN_GLADE)
+		window = self.wTree.get_widget("window1")
+		window.connect("destroy",self.main_quit,"VM Destroy")		
+		
+		#Cuadros de texto
+		self.name = self.wTree.get_widget("lblname")
+		self.description = self.wTree.get_widget("lbldescription")
+		self.server = self.wTree.get_widget("lblserver")
+		self.port = self.wTree.get_widget("lblport")
+		self.mount = self.wTree.get_widget("lblmount")
+		self.user = self.wTree.get_widget("lbluser")
+		self.passw = self.wTree.get_widget("lblpassw")
+		self.genre = self.wTree.get_widget("lblgenre")
+		self.url = self.wTree.get_widget("lblurl")
+
+		#Entradas
+		self.prog = self.wTree.get_widget("entNameProgram")
+		self.prog.set_text("Nombre Programa Sin tildes")
+
+		#Menu
+		self.menu_quit = self.wTree.get_widget("imagemenuitem5")
+		#Botones
+		self.button1 = self.wTree.get_widget("button1")
+		self.button2 = self.wTree.get_widget("button2")
+		#Nivel
+		self.level = self.wTree.get_widget("level")
+		#self.levelrec = self.wTree.get_widget("levelrec")
+		#Barra de estado
+		self.statusbar = self.wTree.get_widget("statusbar1")
+		#Buffer de texto
+		self.textview = self.wTree.get_widget("textview1")
+
+		self.button1.connect("clicked",self.start_streaming)
+		self.button2.connect("clicked",self.start_dump)
+		self.menu_quit.connect("activate",self.main_quit)
+
+
+
+		window.show_all()
+
+		self.view_configuration()
+
+		#buffer
+		self.textbuffer = self.textview.get_buffer()
+		self.textbuffer.insert(self.textbuffer.get_end_iter(),"Pequenho programa para emitir stream usando herramientas de Gstreamer 0.10\n%s\n"%time.asctime())
+
+		# Pipelines
+		self.dump = gst.parse_launch("pulsesrc !  audioconvert ! audioresample ! level name=levelrec ! vorbisenc ! oggmux ! filesink location="+PATH_DUMP+str(int(time.time()))+".ogg")
+		self.streaming = gst.parse_launch("pulsesrc !  audioconvert ! audioresample ! level name=stream ! vorbisenc ! oggmux ! shout2send name=streamsink")
+
+		# Stream  Bus Connections
+		bus = self.streaming.get_bus()
+		bus.add_signal_watch()
+		bus.enable_sync_message_emission()
+		bus.connect("message",self.on_message)
+
+		bus1 = self.dump.get_bus()
+		bus1.add_signal_watch()
+		bus1.enable_sync_message_emission()
+		bus1.connect("message",self.on_message_recording)
+
+		self.streaming.set_state(gst.STATE_NULL)
+		self.dump.set_state(gst.STATE_NULL)
+
+
+if __name__ == "__main__":
+
+	print "\nRsR - Radio Stream Record\nPrograma emisor/grabador de radio por internet\nVersion MeigHacks 2011 - CSOA Palavea - GZ | Gstreamer+PyGTK\nBajo una licencia GPL v3\n"
+	if len(sys.argv) >= 2:
+		print "Cargando configuracion del fichero: %s"%sys.argv[1]
+		config = ConfigParser.RawConfigParser()
+		config.read(sys.argv[1])
+
+		# CONFIGURACION STREAMING
+		IP = config.get("stream","server")
+		PORT = int(config.get("stream","port"))
+		MOUNT = config.get("stream","mount")
+		PASSWORD = config.get("stream","password")
+		USERNAME = config.get("stream","username")
+		STREAMNAME = config.get("stream","streamname")
+		DESCRIPTION = config.get("stream","description")
+		GENRE = config.get("stream","genre")
+		URL = config.get("stream","url")
+		PUBLIC = True
+		PROTOCOL = 3
+		
+		# CONFIGURACION LOCALIZACION GRABACIONES
+		PATH_DUMP = config.get("record","folder")
+		if not os.path.isdir(PATH_DUMP) :
+			os.makedirs(PATH_DUMP)
+		print "Usando el directorio %s para las grabaciones"%PATH_DUMP
+
+	else:
+		print "Debes introducir el fichero de configuracion como primer argumento.\nUso: python streaming <fichero_configuracion>\n"
+		sys.exit()
+
+
+
+
+	#Arrancamos la aplicacion
+	GTK_Main()
+	gtk.gdk.threads_init()
+	gtk.main()
